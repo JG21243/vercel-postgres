@@ -7,7 +7,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model LegalPrompt {
+model legalprompt {
   id            Int      @id @default(autoincrement())
   name          String
   prompt        String

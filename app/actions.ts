@@ -14,7 +14,7 @@ export const generateQuery = async (input: string) => {
       model: openai("gpt-4o"),
       system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need. The table schema is as follows:
 
-      LegalPrompt (
+      legalprompt (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       prompt TEXT NOT NULL,
@@ -71,7 +71,7 @@ export const getLegalPrompts = async (query: string) => {
         "Table does not exist, creating and seeding it with dummy data now...",
       );
       await sql.query(`
-        CREATE TABLE LegalPrompt (
+        CREATE TABLE legalprompt (
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           prompt TEXT NOT NULL,
@@ -79,7 +79,7 @@ export const getLegalPrompts = async (query: string) => {
           createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
           systemMessage TEXT
         );
-        INSERT INTO LegalPrompt (name, prompt, category, systemMessage) VALUES
+        INSERT INTO legalprompt (name, prompt, category, systemMessage) VALUES
         ('Prompt 1', 'This is the first prompt', 'Category 1', 'System message 1'),
         ('Prompt 2', 'This is the second prompt', 'Category 2', 'System message 2'),
         ('Prompt 3', 'This is the third prompt', 'Category 3', NULL);
@@ -105,7 +105,7 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
         explanations: explanationsSchema,
       }),
       system: `You are a SQL (postgres) expert. Your job is to explain to the user the SQL query you wrote to retrieve the data they asked for. The table schema is as follows:
-    LegalPrompt (
+    legalprompt (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       prompt TEXT NOT NULL,
@@ -114,7 +114,7 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
       systemMessage TEXT
     );
 
-    When you explain you must take a section of the query, and then explain it. Each "section" should be unique. So in a query like: "SELECT * FROM LegalPrompt limit 20", the sections could be "SELECT *", "FROM LegalPrompt", "LIMIT 20".
+    When you explain you must take a section of the query, and then explain it. Each "section" should be unique. So in a query like: "SELECT * FROM legalprompt limit 20", the sections could be "SELECT *", "FROM legalprompt", "LIMIT 20".
     If a section doesn't have any explanation, include it, but leave the explanation empty.
 
     `,
