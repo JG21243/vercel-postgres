@@ -31,6 +31,7 @@ function toTitleCase(str: string): string {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
+
 const colors = [
   "hsl(var(--chart-1))",
   "hsl(var(--chart-2))",
@@ -58,24 +59,19 @@ export function DynamicChart({
       }
       return parsedItem;
     });
-
     chartData = parsedChartData;
-
     const processChartData = (data: Result[], chartType: string) => {
       if (chartType === "bar" || chartType === "pie") {
         if (data.length <= 8) {
           return data;
         }
-
         const subset = data.slice(0, 20);
         return subset;
       }
       return data;
     };
-
     chartData = processChartData(chartData, chartConfig.type);
     // console.log({ chartData, chartConfig });
-
     switch (chartConfig.type) {
       case "bar":
         return (
@@ -115,8 +111,6 @@ export function DynamicChart({
           chartConfig.multipleLines &&
           chartConfig.measurementColumn &&
           chartConfig.yKeys.includes(chartConfig.measurementColumn);
-        // console.log(useTransformedData, "useTransformedData");
-        // const useTransformedData = false;
         return (
           <LineChart data={useTransformedData ? data : chartData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -207,28 +201,7 @@ export function DynamicChart({
 
   return (
     <div className="w-full flex flex-col justify-center items-center">
-      <h2 className="text-lg font-bold mb-2">{chartConfig.title}</h2>
-      {chartConfig && chartData.length > 0 && (
-        <ChartContainer
-          config={chartConfig.yKeys.reduce(
-            (acc, key, index) => {
-              acc[key] = {
-                label: key,
-                color: colors[index % colors.length],
-              };
-              return acc;
-            },
-            {} as Record<string, { label: string; color: string }>,
-          )}
-          className="h-[320px] w-full"
-        >
-          {renderChart()}
-        </ChartContainer>
-      )}
-      <div className="w-full">
-        <p className="mt-4 text-sm">{chartConfig.description}</p>
-        <p className="mt-4 text-sm">{chartConfig.takeaway}</p>
-      </div>
+      {renderChart()}
     </div>
   );
 }

@@ -18,22 +18,20 @@ function parseDate(dateString: string): string {
 
 export async function seed() {
   const createTable = await sql`
-    CREATE TABLE IF NOT EXISTS unicorns (
+    CREATE TABLE IF NOT EXISTS LegalPrompt (
       id SERIAL PRIMARY KEY,
-      company VARCHAR(255) NOT NULL UNIQUE,
-      valuation DECIMAL(10, 2) NOT NULL,
-      date_joined DATE,
-      country VARCHAR(255) NOT NULL,
-      city VARCHAR(255) NOT NULL,
-      industry VARCHAR(255) NOT NULL,
-      select_investors TEXT NOT NULL
+      name VARCHAR(255) NOT NULL,
+      prompt TEXT NOT NULL,
+      category VARCHAR(255) NOT NULL,
+      createdAt TIMESTAMP DEFAULT NOW(),
+      systemMessage TEXT
     );
   `;
 
-  console.log(`Created "unicorns" table`);
+  console.log(`Created "LegalPrompt" table`);
 
   const results: any[] = [];
-  const csvFilePath = path.join(process.cwd(), 'unicorns.csv');
+  const csvFilePath = path.join(process.cwd(), 'legal_prompts.csv');
 
   await new Promise((resolve, reject) => {
     fs.createReadStream(csvFilePath)
@@ -44,30 +42,27 @@ export async function seed() {
   });
 
   for (const row of results) {
-    const formattedDate = parseDate(row['Date Joined']);
+    const formattedDate = parseDate(row['Created At']);
 
     await sql`
-      INSERT INTO unicorns (company, valuation, date_joined, country, city, industry, select_investors)
+      INSERT INTO LegalPrompt (name, prompt, category, createdAt, systemMessage)
       VALUES (
-        ${row.Company},
-        ${parseFloat(row['Valuation ($B)'].replace('$', '').replace(',', ''))},
+        ${row.Name},
+        ${row.Prompt},
+        ${row.Category},
         ${formattedDate},
-        ${row.Country},
-        ${row.City},
-        ${row.Industry},
-        ${row['Select Investors']}
+        ${row['System Message']}
       )
-      ON CONFLICT (company) DO NOTHING;
+      ON CONFLICT (id) DO NOTHING;
     `;
   }
 
-  console.log(`Seeded ${results.length} unicorns`);
+  console.log(`Seeded ${results.length} legal prompts`);
 
   return {
     createTable,
-    unicorns: results,
+    legalPrompts: results,
   };
 }
-
 
 seed().catch(console.error);

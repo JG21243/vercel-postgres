@@ -1,4 +1,4 @@
-import { Config, Result, Unicorn } from "@/lib/types";
+import { Config, Result, LegalPrompt } from "@/lib/types";
 import { DynamicChart } from "./dynamic-chart";
 import { SkeletonCard } from "./skeleton-card";
 import {
@@ -11,7 +11,7 @@ import {
 } from "./ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
-export const UnicornTable = ({
+export const LegalPromptTable = ({
   results,
   columns,
   chartConfig,
@@ -30,42 +30,18 @@ export const UnicornTable = ({
   };
 
   const formatCellValue = (column: string, value: any) => {
-    if (column.toLowerCase().includes("valuation")) {
-      const parsedValue = parseFloat(value);
-      if (isNaN(parsedValue)) {
-        return "";
-      }
-      const formattedValue = parsedValue.toFixed(2);
-      const trimmedValue = formattedValue.replace(/\.?0+$/, "");
-      return `$${trimmedValue}B`;
+    if (column.toLowerCase().includes("createdat")) {
+      return new Date(value).toLocaleString();
     }
-    if (column.toLowerCase().includes("rate")) {
-      const parsedValue = parseFloat(value);
-      if (isNaN(parsedValue)) {
-        return "";
-      }
-      const percentage = (parsedValue * 100).toFixed(2);
-      return `${percentage}%`;
-    }
-    if (value instanceof Date) {
-      return value.toLocaleDateString();
-    }
-    return String(value);
+    return value;
   };
 
   return (
-    <div className="flex-grow flex flex-col">
-      <Tabs defaultValue="table" className="w-full flex-grow flex flex-col">
-        <TabsList className="grid w-full grid-cols-2">
+    <div>
+      <Tabs defaultValue="table">
+        <TabsList>
           <TabsTrigger value="table">Table</TabsTrigger>
-          <TabsTrigger
-            value="charts"
-            disabled={
-              Object.keys(results[0] || {}).length <= 1 || results.length < 2
-            }
-          >
-            Chart
-          </TabsTrigger>
+          <TabsTrigger value="charts">Charts</TabsTrigger>
         </TabsList>
         <TabsContent value="table" className="flex-grow">
           <div className="sm:min-h-[10px] relative">
@@ -83,7 +59,7 @@ export const UnicornTable = ({
                 </TableRow>
               </TableHeader>
               <TableBody className="bg-card divide-y divide-border">
-                {results.map((company, index) => (
+                {results.map((prompt, index) => (
                   <TableRow key={index} className="hover:bg-muted">
                     {columns.map((column, cellIndex) => (
                       <TableCell
@@ -92,7 +68,7 @@ export const UnicornTable = ({
                       >
                         {formatCellValue(
                           column,
-                          company[column as keyof Unicorn],
+                          prompt[column as keyof LegalPrompt],
                         )}
                       </TableCell>
                     ))}

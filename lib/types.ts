@@ -1,52 +1,60 @@
 import { z } from "zod";
 
-export type Unicorn = {
-  id: number;
-  company: string;
-  valuation: number;
-  date_joined: Date | null;
-  country: string;
-  city: string;
-  industry: string;
-  select_investors: string;
-};
+// Represents a legal prompt with various attributes
+export interface LegalPrompt {
+  id: number;          // Unique identifier for the prompt
+  name: string;        // Name of the prompt
+  prompt: string;      // The actual prompt text
+  category: string;    // Category to which the prompt belongs
+  createdAt: Date;     // Date when the prompt was created
+  systemMessage?: string; // Optional system message associated with the prompt
+}
 
+// Represents data for creating or updating a prompt
+export interface PromptData {
+  name: string;        // Name of the prompt
+  prompt: string;      // The actual prompt text
+  category: string;    // Category to which the prompt belongs
+  createdAt?: Date;    // Optional date when the prompt was created
+  systemMessage?: string; // Optional system message associated with the prompt
+}
+
+// Represents pagination information
+export interface PaginationInfo {
+  total: number;       // Total number of items
+  page: number;        // Current page number
+  limit: number;       // Number of items per page
+  totalPages: number;  // Total number of pages
+}
+
+// Represents a generic API response
+export interface ApiResponse<T> {
+  data: T;             // Data returned by the API
+  error?: string;      // Optional error message
+  message?: string;    // Optional additional message
+}
+
+// Represents the response for prompts with pagination
+export interface PromptsResponse {
+  prompts: LegalPrompt[];  // Array of legal prompts
+  pagination: PaginationInfo;  // Pagination information
+}
+
+// Represents a generic result type
 export type Result = Record<string, string | number>;
 
+// Schema for explaining sections of a query
 export const explanationSchema = z.object({
   section: z.string(),
   explanation: z.string(),
 });
 export const explanationsSchema = z.array(explanationSchema);
 
-export type QueryExplanation = z.infer<typeof explanationSchema>;
-
-// Define the schema for chart configuration
-export const configSchema = z
-  .object({
-    description: z
-      .string()
-      .describe(
-        "Describe the chart. What is it showing? What is interesting about the way the data is displayed?",
-      ),
-    takeaway: z.string().describe("What is the main takeaway from the chart?"),
-    type: z.enum(["bar", "line", "area", "pie"]).describe("Type of chart"),
-    title: z.string(),
-    xKey: z.string().describe("Key for x-axis or category"),
-    yKeys: z.array(z.string()).describe("Key(s) for y-axis values this is typically the quantitative column"),
-    multipleLines: z.boolean().describe("For line charts only: whether the chart is comparing groups of data.").optional(),
-    measurementColumn: z.string().describe("For line charts only: key for quantitative y-axis column to measure against (eg. values, counts etc.)").optional(),
-    lineCategories: z.array(z.string()).describe("For line charts only: Categories used to compare different lines or data series. Each category represents a distinct line in the chart.").optional(),
-    colors: z
-      .record(
-        z.string().describe("Any of the yKeys"),
-        z.string().describe("Color value in CSS format (e.g., hex, rgb, hsl)"),
-      )
-      .describe("Mapping of data keys to color values for chart elements")
-      .optional(),
-    legend: z.boolean().describe("Whether to show legend"),
-  })
-  .describe("Chart configuration object");
-
-
-export type Config = z.infer<typeof configSchema>;
+// Schema for chart configuration
+export const configSchema = z.object({
+  type: z.string(),
+  xKey: z.string(),
+  yKeys: z.array(z.string()),
+  colors: z.record(z.string(), z.string()).optional(),
+  legend: z.boolean().optional(),
+});
