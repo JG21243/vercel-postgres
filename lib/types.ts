@@ -57,6 +57,8 @@ export const configSchema = z.object({
   yKeys: z.array(z.string()),
   colors: z.record(z.string(), z.string()).optional(),
   legend: z.boolean().optional(),
+  multipleLines: z.boolean().optional(), // Add this line
+  measurementColumn: z.string().optional(), // Add this line
 });
 
 // Define and export the Config type
