@@ -7,9 +7,15 @@ import { sql } from "@vercel/postgres";
 import { generateObject } from "ai";
 import { z } from "zod";
 
+// Debug logging helper
+const debug = (message: string, data?: any) => {
+  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+};
+
 export const generateQuery = async (input: string) => {
   "use server";
-  console.log("Generating query for input:", input);
+  debug("Generating query for input:", input);
+  
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
@@ -37,6 +43,9 @@ export const generateQuery = async (input: string) => {
       }),
     });
 
+    // Log raw query before processing
+    debug("Raw query from AI:", result.object.query);
+    
     // Enhanced post-processing for case-sensitive accuracy
     let generatedQuery = result.object.query;
     
@@ -48,12 +57,26 @@ export const generateQuery = async (input: string) => {
       'system_message': 'systemMessage'
     };
 
+    // Log each transformation
     Object.entries(columnMappings).forEach(([incorrect, correct]) => {
       const regex = new RegExp(incorrect, 'gi');
+      const beforeReplace = generatedQuery;
       generatedQuery = generatedQuery.replace(regex, correct);
+      if (beforeReplace !== generatedQuery) {
+        debug(`Replaced "${incorrect}" with "${correct}"`);
+      }
     });
 
-    console.log("Generated query:", generatedQuery);
+    // Validate final query contains correct column names
+    const requiredColumns = ['createdAt', 'systemMessage'];
+    const lowerCaseQuery = generatedQuery.toLowerCase();
+    requiredColumns.forEach(column => {
+      if (lowerCaseQuery.includes(column.toLowerCase()) && !generatedQuery.includes(column)) {
+        debug(`Warning: Query may have incorrect casing for column "${column}"`);
+      }
+    });
+
+    debug("Final processed query:", generatedQuery);
     return generatedQuery;
   } catch (e) {
     console.error("Error generating query:", e);
@@ -63,49 +86,85 @@ export const generateQuery = async (input: string) => {
 
 export const getLegalPrompts = async (query: string) => {
   "use server";
-  console.log("Executing query:", query);
-  if (
-    !query.trim().toLowerCase().startsWith("select") ||
-    query.trim().toLowerCase().includes("drop") ||
-    query.trim().toLowerCase().includes("delete") ||
-    query.trim().toLowerCase().includes("insert")
-  ) {
+  debug("Executing query:", query);
+
+  // Enhanced query validation
+  const queryValidation = {
+    isSelect: query.trim().toLowerCase().startsWith("select"),
+    hasDrop: query.trim().toLowerCase().includes("drop"),
+    hasDelete: query.trim().toLowerCase().includes("delete"),
+    hasInsert: query.trim().toLowerCase().includes("insert")
+  };
+
+  debug("Query validation results:", queryValidation);
+
+  if (!queryValidation.isSelect || queryValidation.hasDrop || 
+      queryValidation.hasDelete || queryValidation.hasInsert) {
     throw new Error("Only SELECT queries are allowed");
   }
 
   let data: any;
   try {
+    // Log exact query being sent to database
+    debug("Executing SQL query:", { 
+      query,
+      timestamp: new Date().toISOString()
+    });
+
     data = await sql.query(query);
-    console.log("Query executed successfully:", data);
+    debug("Query executed successfully", {
+      rowCount: data.rowCount,
+      fields: data.fields?.map((f: { name: string }) => f.name)
+    });
   } catch (e: any) {
     if (e.message.includes('relation "legalprompt" does not exist')) {
-      console.log(
-        "Table does not exist, creating and seeding it with dummy data now...",
-      );
-      await sql.query(`
+      debug("Table does not exist, creating and seeding");
+      
+      const createTableQuery = `
         CREATE TABLE legalprompt (
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           prompt TEXT NOT NULL,
           category VARCHAR(255) NOT NULL,
-          createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
-          systemMessage TEXT
+          "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+          "systemMessage" TEXT
         );
-        INSERT INTO legalprompt (name, prompt, category, systemMessage) VALUES
+      `;
+      
+      debug("Creating table with query:", createTableQuery);
+      await sql.query(createTableQuery);
+
+      const seedQuery = `
+        INSERT INTO legalprompt (name, prompt, category, "systemMessage") VALUES
         ('Prompt 1', 'This is the first prompt', 'Category 1', 'System message 1'),
         ('Prompt 2', 'This is the second prompt', 'Category 2', 'System message 2'),
         ('Prompt 3', 'This is the third prompt', 'Category 3', NULL);
-      `);
+      `;
+      
+      debug("Seeding table with query:", seedQuery);
+      await sql.query(seedQuery);
+      
+      // Retry original query
+      debug("Retrying original query after table creation");
       data = await sql.query(query);
-      console.log("Table created and seeded successfully:", data);
+      debug("Query executed successfully after table creation");
     } else {
-      console.error("Error executing query:", e);
+      console.error("Error executing query:", {
+        error: e,
+        query,
+        message: e.message,
+        code: e.code,
+        detail: e.detail,
+        hint: e.hint
+      });
       throw e;
     }
   }
 
   return data.rows as Result[];
 };
+
+// [Rest of the file remains unchanged...]
 
 export const explainQuery = async (input: string, sqlQuery: string) => {
   "use server";
