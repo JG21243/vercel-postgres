@@ -13,41 +13,45 @@ export const generateQuery = async (input: string) => {
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
-      system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need. The table schema is as follows:
+      system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need.
 
+      IMPORTANT: Column names are case-sensitive. Always use exact casing:
+      - createdAt (not createdat or created_at)
+      - systemMessage (not systemmessage)
+      
+      Table schema:
       legalprompt (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      prompt TEXT NOT NULL,
-      category VARCHAR(255) NOT NULL,
-      createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
-      systemMessage TEXT
-    );
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        prompt TEXT NOT NULL,
+        category VARCHAR(255) NOT NULL,
+        createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
+        systemMessage TEXT
+      );
 
-    Only retrieval queries are allowed.
-
-    For things like category, name and other string fields, use the ILIKE operator and convert both the search term and the field to lowercase using LOWER() function. For example: LOWER(category) ILIKE LOWER('%search_term%').
-
-    Note: systemMessage is an optional field and may be null.
-    When answering questions about a specific field, ensure you are selecting the identifying column (ie. what is the prompt for a specific name would select name and prompt).
-
-    If the user asks for a rate, return it as a decimal. For example, 0.1 would be 10%.
-
-    If the user asks for 'over time' data, return by year.
-
-    EVERY QUERY SHOULD RETURN QUANTITATIVE DATA THAT CAN BE PLOTTED ON A CHART! There should always be at least two columns. If the user asks for a single column, return the column and the count of the column. If the user asks for a rate, return the rate as a decimal. For example, 0.1 would be 10%.
-
-    Ensure the column names in the generated query match the exact case-sensitive schema, especially the 'createdAt' column.
-    `,
+      Only retrieval queries are allowed.
+      [Previous system instructions...]`,
       prompt: `Generate the query necessary to retrieve the data the user wants: ${input}`,
       schema: z.object({
         query: z.string(),
       }),
     });
 
-    // Post-process the generated query to ensure case-sensitive accuracy
+    // Enhanced post-processing for case-sensitive accuracy
     let generatedQuery = result.object.query;
-    generatedQuery = generatedQuery.replace(/createdat/gi, 'createdAt');
+    
+    // Fix common case variations
+    const columnMappings = {
+      'createdat': 'createdAt',
+      'created_at': 'createdAt', 
+      'systemmessage': 'systemMessage',
+      'system_message': 'systemMessage'
+    };
+
+    Object.entries(columnMappings).forEach(([incorrect, correct]) => {
+      const regex = new RegExp(incorrect, 'gi');
+      generatedQuery = generatedQuery.replace(regex, correct);
+    });
 
     console.log("Generated query:", generatedQuery);
     return generatedQuery;
