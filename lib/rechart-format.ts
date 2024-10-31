@@ -1,3 +1,4 @@
+// lib/rechart-format.ts
 import { Config } from "./types";
 
 type InputDataPoint = Record<string, string | number>;
