@@ -17,13 +17,13 @@ export function transformDataForMultiLineChart(
   chartConfig: Config
 ): TransformationResult {
   // console.log("Input data:", data);
-  const {xKey,lineCategories, measurementColumn } = chartConfig;
+  const {xKey, yKeys: lineCategories, measurementColumn } = chartConfig;
 
   const fields = Object.keys(data[0]);
   // console.log("Fields:", fields);
 
   const xAxisField = xKey ?? 'year'; // Assuming 'year' is always the x-axis
-  const lineField = fields.find(field => lineCategories?.includes(data[0][field] as string)) || '';
+  const lineField = fields.find(field => lineCategories.includes(data[0][field] as string)) || '';
 
   // console.log("X-axis field:", xAxisField);
   // console.log("Line field:", lineField);
@@ -35,7 +35,7 @@ export function transformDataForMultiLineChart(
 
   const transformedData: TransformedDataPoint[] = xAxisValues.map(xValue => {
     const dataPoint: TransformedDataPoint = { [xAxisField]: xValue };
-    lineCategories?.forEach(category => {
+    lineCategories.forEach(category => {
       const matchingItem = data.find(item =>
         String(item[xAxisField]) === xValue && String(item[lineField]) === category
       );
