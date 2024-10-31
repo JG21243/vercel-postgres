@@ -1,9 +1,19 @@
 import { useState } from "react";
 
-export const UnicornSearch = ({ onSearch }: { onSearch: (query: string) => void }) => {
-  const [inputValue, setInputValue] = useState("");
-
-  const handleSubmit = (e: React.FormEvent) => {
+export const LegalPromptSearch = ({
+  onSearch,
+  handleSubmit,
+  inputValue,
+  setInputValue,
+  submitted,
+}: {
+  onSearch: (query: string) => void;
+  handleSubmit: (e: React.FormEvent) => void;
+  inputValue: string;
+  setInputValue: (value: string) => void;
+  submitted: boolean;
+}) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
       onSearch(inputValue);
@@ -11,7 +21,7 @@ export const UnicornSearch = ({ onSearch }: { onSearch: (query: string) => void 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center space-x-2">
+    <form onSubmit={handleFormSubmit} className="flex items-center space-x-2">
       <input
         type="text"
         value={inputValue}

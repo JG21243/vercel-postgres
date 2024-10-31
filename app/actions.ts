@@ -1,6 +1,6 @@
 "use server";
-
-import { Config, configSchema, explanationsSchema, Result } from "@/lib/types";
+import { Config } from '@/lib/types';
+import { configSchema, explanationsSchema, Result } from "@/lib/types";
 import { openai } from "@ai-sdk/openai";
 import { sql } from "@vercel/postgres";
 import { generateObject } from "ai";
@@ -63,7 +63,7 @@ export const getLegalPrompts = async (query: string) => {
   try {
     data = await sql.query(query);
   } catch (e: any) {
-    if (e.message.includes('relation "legalprompts" does not exist')) {
+    if (e.message.includes('relation "legalprompt" does not exist')) {
       console.log(
         "Table does not exist, creating and seeding it with dummy data now...",
       );
@@ -157,7 +157,11 @@ export const generateChartConfig = async (
     const updatedConfig: Config = { ...config, colors };
     return { config: updatedConfig };
   } catch (e) {
-    console.error(e.message);
+    if (e instanceof Error) {
+      console.error(e.message);
+    } else {
+      console.error(e);
+    }
     throw new Error("Failed to generate chart suggestion");
   }
 };

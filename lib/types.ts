@@ -58,3 +58,6 @@ export const configSchema = z.object({
   colors: z.record(z.string(), z.string()).optional(),
   legend: z.boolean().optional(),
 });
+
+// Define and export the Config type
+export type Config = z.infer<typeof configSchema>;

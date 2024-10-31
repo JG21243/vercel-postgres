@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Button } from "./ui/button";
 import { QueryWithTooltips } from "./ui/query-with-tooltips";
 import { explainQuery } from "@/app/actions";
-import { QueryExplanation } from "@/lib/types";
+// Define QueryExplanation type directly in this file
+type QueryExplanation = {
+  explanation: string;
+  // Add other properties as needed
+};
 import { CircleHelp, Loader2 } from "lucide-react";
 
 export const QueryViewer = ({

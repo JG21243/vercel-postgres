@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { generateChartConfig, generateQuery, getCompanies } from "./actions";
+import { generateChartConfig, generateQuery, getLegalPrompts } from "./actions";
 import { Config, Result } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ProjectInfo } from "@/components/project-info";
-import { UnicornTable } from "@/components/unicorn-table";
+import { LegalPromptSearch } from "@/components/legal-prompt-search";
+import { LegalPromptTable } from "@/components/legal-prompt-table";
 import { SuggestedQueries } from "@/components/suggested-queries";
 import { QueryViewer } from "@/components/query-viewer";
-import { UnicornSearch } from "@/components/unicorn-search";
 import { Header } from "@/components/header";
 
 export default function Page() {
@@ -42,12 +42,12 @@ export default function Page() {
       }
       setActiveQuery(query);
       setLoadingStep(2);
-      const companies = await getCompanies(query);
-      const columns = companies.length > 0 ? Object.keys(companies[0]) : [];
-      setResults(companies);
+      const legalPrompts = await getLegalPrompts(query);
+      const columns = legalPrompts.length > 0 ? Object.keys(legalPrompts[0]) : [];
+      setResults(legalPrompts);
       setColumns(columns);
       setLoading(false);
-      const generation = await generateChartConfig(companies, question);
+      const generation = await generateChartConfig(legalPrompts, question);
       setChartConfig(generation.config);
     } catch (e) {
       toast.error("An error occurred. Please try again.");
@@ -88,9 +88,12 @@ export default function Page() {
         >
           <div className="p-6 sm:p-8 flex flex-col flex-grow">
             <Header handleClear={handleClear} />
-            <UnicornSearch
-              handleClear={handleClear}
-              handleSubmit={handleSubmit}
+            <LegalPromptSearch
+              onSearch={handleSubmit}
+              handleSubmit={(e) => {
+                e.preventDefault();
+                handleSubmit();
+              }}
               inputValue={inputValue}
               setInputValue={setInputValue}
               submitted={submitted}
@@ -134,7 +137,7 @@ export default function Page() {
                           </p>
                         </div>
                       ) : (
-                        <UnicornTable
+                        <LegalPromptTable
                           results={results}
                           chartConfig={chartConfig}
                           columns={columns}
