@@ -4,6 +4,7 @@ import { QueryWithTooltips } from "./ui/query-with-tooltips";
 import { explainQuery } from "@/app/actions";
 // Define QueryExplanation type directly in this file
 type QueryExplanation = {
+  section: string;
   explanation: string;
   // Add other properties as needed
 };
