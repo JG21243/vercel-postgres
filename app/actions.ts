@@ -36,14 +36,21 @@ export const generateQuery = async (input: string) => {
     If the user asks for 'over time' data, return by year.
 
     EVERY QUERY SHOULD RETURN QUANTITATIVE DATA THAT CAN BE PLOTTED ON A CHART! There should always be at least two columns. If the user asks for a single column, return the column and the count of the column. If the user asks for a rate, return the rate as a decimal. For example, 0.1 would be 10%.
+
+    Ensure the column names in the generated query match the exact case-sensitive schema, especially the 'createdAt' column.
     `,
       prompt: `Generate the query necessary to retrieve the data the user wants: ${input}`,
       schema: z.object({
         query: z.string(),
       }),
     });
-    console.log("Generated query:", result.object.query);
-    return result.object.query;
+
+    // Post-process the generated query to ensure case-sensitive accuracy
+    let generatedQuery = result.object.query;
+    generatedQuery = generatedQuery.replace(/createdat/gi, 'createdAt');
+
+    console.log("Generated query:", generatedQuery);
+    return generatedQuery;
   } catch (e) {
     console.error("Error generating query:", e);
     throw new Error("Failed to generate query");
