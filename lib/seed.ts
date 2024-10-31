@@ -20,7 +20,9 @@ function parseDate(dateString: string): Date {
 
 async function seed() {
   const results: any[] = [];
-  const csvFilePath = path.join(process.cwd(), 'legal_prompts.csv');
+  const csvFilePath = path.join('/workspaces/natural-language-postgres', 'legal_prompts.csv');
+
+  console.log(`Reading CSV file from: ${csvFilePath}`);
 
   await new Promise((resolve, reject) => {
     fs.createReadStream(csvFilePath)
@@ -30,18 +32,27 @@ async function seed() {
       .on('error', reject);
   });
 
-  for (const row of results) {
-    const formattedDate = parseDate(row['Created At']);
+  console.log(`Parsed ${results.length} rows from CSV file`);
 
-    await prisma.legalPrompt.create({
-      data: {
-        name: row.Name,
-        prompt: row.Prompt,
-        category: row.Category,
-        createdAt: formattedDate,
-        systemMessage: row['System Message'],
-      },
-    });
+  for (const row of results) {
+    try {
+      const formattedDate = parseDate(row['Created At']);
+      console.log(`Seeding row: ${JSON.stringify(row)}`);
+
+      await prisma.legalprompt.create({
+        data: {
+          name: row.Name,
+          prompt: row.Prompt,
+          category: row.Category,
+          createdAt: formattedDate,
+          systemMessage: row['System Message'],
+        },
+      });
+
+      console.log(`Successfully seeded row: ${row.Name}`);
+    } catch (error) {
+      console.error(`Error seeding row: ${JSON.stringify(row)}`, error);
+    }
   }
 
   console.log(`Seeded ${results.length} legal prompts`);
@@ -49,7 +60,7 @@ async function seed() {
 
 seed()
   .catch((e) => {
-    console.error(e);
+    console.error('Error during seeding process:', e);
     process.exit(1);
   })
   .finally(async () => {
