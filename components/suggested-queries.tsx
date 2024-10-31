@@ -8,52 +8,48 @@ export const SuggestedQueries = ({
 }) => {
   const suggestionQueries = [
     {
-      desktop: "Compare count of unicorns in SF and NY over time",
-      mobile: "SF vs NY",
+      desktop: "List all legal prompts created in the last month",
+      mobile: "Recent prompts",
     },
     {
-      desktop: "Compare unicorn valuations in the US vs China over time",
-      mobile: "US vs China",
+      desktop: "Show the count of legal prompts by category",
+      mobile: "Prompts by category",
     },
     {
-      desktop: "Countries with highest unicorn density",
-      mobile: "Top countries",
+      desktop: "Find legal prompts with a specific system message",
+      mobile: "Specific system message",
     },
     {
-      desktop:
-        "Show the number of unicorns founded each year over the past two decades",
-      mobile: "Yearly count",
+      desktop: "Display legal prompts sorted by creation date",
+      mobile: "Sorted by date",
     },
     {
-      desktop: "Display the cumulative total valuation of unicorns over time",
-      mobile: "Total value",
+      desktop: "Show the latest legal prompt added",
+      mobile: "Latest prompt",
     },
     {
-      desktop:
-        "Compare the yearly funding amounts for fintech vs healthtech unicorns",
-      mobile: "Fintech vs health",
+      desktop: "Count of legal prompts created each day for the past week",
+      mobile: "Weekly count",
     },
     {
-      desktop: "Which cities have with most SaaS unicorns",
-      mobile: "SaaS cities",
+      desktop: "List all legal prompts with a specific keyword in the name",
+      mobile: "Keyword search",
     },
     {
-      desktop: "Show the countries with highest unicorn density",
-      mobile: "Dense nations",
+      desktop: "Show legal prompts grouped by category",
+      mobile: "Grouped by category",
     },
     {
-      desktop:
-        "Show the number of unicorns (grouped by year) over the past decade",
-      mobile: "Decade trend",
+      desktop: "Find legal prompts without a system message",
+      mobile: "No system message",
     },
     {
-      desktop:
-        "Compare the average valuation of AI companies vs. biotech companies",
-      mobile: "AI vs biotech",
+      desktop: "Display the total number of legal prompts",
+      mobile: "Total prompts",
     },
     {
-      desktop: "Investors with the most unicorns",
-      mobile: "Top investors",
+      desktop: "Show legal prompts created before a specific date",
+      mobile: "Before date",
     },
   ];
 
