@@ -1,3 +1,4 @@
+// app/actions.ts
 "use server";
 import { Config } from '@/lib/types';
 import { configSchema, explanationsSchema, Result } from "@/lib/types";
