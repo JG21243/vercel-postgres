@@ -33,7 +33,7 @@ async function seed() {
   for (const row of results) {
     const formattedDate = parseDate(row['Created At']);
 
-    await prisma.legalPrompt.create({
+    await prisma.legalprompt.create({
       data: {
         name: row.Name,
         prompt: row.Prompt,
