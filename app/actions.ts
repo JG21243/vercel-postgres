@@ -15,7 +15,7 @@ export const generateQuery = async (input: string) => {
       model: openai("gpt-4o"),
       system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need. The table schema is as follows:
 
-      legalprompt (
+      legalPrompt (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       prompt TEXT NOT NULL,
