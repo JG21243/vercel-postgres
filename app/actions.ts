@@ -8,6 +8,7 @@ import { z } from "zod";
 
 export const generateQuery = async (input: string) => {
   "use server";
+  console.log("Generating query for input:", input);
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
@@ -40,16 +41,17 @@ export const generateQuery = async (input: string) => {
         query: z.string(),
       }),
     });
+    console.log("Generated query:", result.object.query);
     return result.object.query;
   } catch (e) {
-    console.error(e);
+    console.error("Error generating query:", e);
     throw new Error("Failed to generate query");
   }
 };
 
 export const getLegalPrompts = async (query: string) => {
   "use server";
-  // Check if the query is a SELECT statement
+  console.log("Executing query:", query);
   if (
     !query.trim().toLowerCase().startsWith("select") ||
     query.trim().toLowerCase().includes("drop") ||
@@ -62,14 +64,30 @@ export const getLegalPrompts = async (query: string) => {
   let data: any;
   try {
     data = await sql.query(query);
+    console.log("Query executed successfully:", data);
   } catch (e: any) {
     if (e.message.includes('relation "legalprompt" does not exist')) {
       console.log(
         "Table does not exist, creating and seeding it with dummy data now...",
       );
-      // throw error
-      throw Error("Table does not exist");
+      await sql.query(`
+        CREATE TABLE LegalPrompt (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          prompt TEXT NOT NULL,
+          category VARCHAR(255) NOT NULL,
+          createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
+          systemMessage TEXT
+        );
+        INSERT INTO LegalPrompt (name, prompt, category, systemMessage) VALUES
+        ('Prompt 1', 'This is the first prompt', 'Category 1', 'System message 1'),
+        ('Prompt 2', 'This is the second prompt', 'Category 2', 'System message 2'),
+        ('Prompt 3', 'This is the third prompt', 'Category 3', NULL);
+      `);
+      data = await sql.query(query);
+      console.log("Table created and seeded successfully:", data);
     } else {
+      console.error("Error executing query:", e);
       throw e;
     }
   }
@@ -79,6 +97,7 @@ export const getLegalPrompts = async (query: string) => {
 
 export const explainQuery = async (input: string, sqlQuery: string) => {
   "use server";
+  console.log("Explaining query for input:", input);
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
@@ -107,9 +126,10 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
       Generated SQL Query:
       ${sqlQuery}`,
     });
+    console.log("Generated explanation:", result.object);
     return result.object;
   } catch (e) {
-    console.error(e);
+    console.error("Error generating query explanation:", e);
     throw new Error("Failed to generate query explanation");
   }
 };
@@ -119,6 +139,7 @@ export const generateChartConfig = async (
   userQuery: string,
 ) => {
   "use server";
+  console.log("Generating chart config for user query:", userQuery);
   const system = `You are a data visualization expert. `;
 
   try {
@@ -155,12 +176,13 @@ export const generateChartConfig = async (
     });
 
     const updatedConfig: Config = { ...config, colors };
+    console.log("Generated chart config:", updatedConfig);
     return { config: updatedConfig };
   } catch (e) {
     if (e instanceof Error) {
-      console.error(e.message);
+      console.error("Error generating chart config:", e.message);
     } else {
-      console.error(e);
+      console.error("Error generating chart config:", e);
     }
     throw new Error("Failed to generate chart suggestion");
   }
