@@ -50,6 +50,9 @@ export const explanationSchema = z.object({
 });
 export const explanationsSchema = z.array(explanationSchema);
 
+// Define and export the QueryExplanation type
+export type QueryExplanation = z.infer<typeof explanationSchema>;
+
 // Schema for chart configuration
 export const configSchema = z.object({
   type: z.string(),
