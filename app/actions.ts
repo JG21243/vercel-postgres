@@ -21,9 +21,9 @@ export const generateQuery = async (input: string) => {
       model: openai("gpt-4o"),
       system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need.
 
-      IMPORTANT: Column names are case-sensitive. Always use exact casing:
-      - createdAt (not createdat or created_at)
-      - systemMessage (not systemmessage)
+      IMPORTANT: Column names are case-sensitive and must be quoted:
+      - Use "createdAt" (not createdat or created_at)
+      - Use "systemMessage" (not systemmessage)
       
       Table schema:
       legalprompt (
@@ -31,48 +31,36 @@ export const generateQuery = async (input: string) => {
         name VARCHAR(255) NOT NULL,
         prompt TEXT NOT NULL,
         category VARCHAR(255) NOT NULL,
-        createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
-        systemMessage TEXT
-      );
-
-      Only retrieval queries are allowed.
-      [Previous system instructions...]`,
-      prompt: `Generate the query necessary to retrieve the data the user wants: ${input}`,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "systemMessage" TEXT
+      );`,
+      prompt: input,
       schema: z.object({
         query: z.string(),
       }),
     });
 
-    // Log raw query before processing
-    debug("Raw query from AI:", result.object.query);
-    
-    // Enhanced post-processing for case-sensitive accuracy
     let generatedQuery = result.object.query;
     
-    // Fix common case variations
+    // Updated column mappings with quotes
     const columnMappings = {
-      'createdat': 'createdAt',
-      'created_at': 'createdAt', 
-      'systemmessage': 'systemMessage',
-      'system_message': 'systemMessage'
+      'createdat': '"createdAt"',
+      'created_at': '"createdAt"', 
+      'systemmessage': '"systemMessage"',
+      'system_message': '"systemMessage"'
     };
 
-    // Log each transformation
+    // Fix case and add quotes
     Object.entries(columnMappings).forEach(([incorrect, correct]) => {
       const regex = new RegExp(incorrect, 'gi');
-      const beforeReplace = generatedQuery;
       generatedQuery = generatedQuery.replace(regex, correct);
-      if (beforeReplace !== generatedQuery) {
-        debug(`Replaced "${incorrect}" with "${correct}"`);
-      }
     });
 
-    // Validate final query contains correct column names
-    const requiredColumns = ['createdAt', 'systemMessage'];
-    const lowerCaseQuery = generatedQuery.toLowerCase();
-    requiredColumns.forEach(column => {
-      if (lowerCaseQuery.includes(column.toLowerCase()) && !generatedQuery.includes(column)) {
-        debug(`Warning: Query may have incorrect casing for column "${column}"`);
+    // Additional validation for quoted columns
+    const sensitiveColumns = ['createdAt', 'systemMessage'];
+    sensitiveColumns.forEach(column => {
+      if (generatedQuery.includes(column) && !generatedQuery.includes(`"${column}"`)) {
+        generatedQuery = generatedQuery.replace(new RegExp(column, 'g'), `"${column}"`);
       }
     });
 
