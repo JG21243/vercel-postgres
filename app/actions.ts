@@ -152,7 +152,7 @@ export const getLegalPrompts = async (query: string) => {
   return data.rows as Result[];
 };
 
-// [Rest of the file remains unchanged...]
+
 
 export const explainQuery = async (input: string, sqlQuery: string) => {
   "use server";
