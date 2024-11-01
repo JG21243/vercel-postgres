@@ -12,6 +12,63 @@ const debug = (message: string, data?: any) => {
   console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
 };
 
+// Type guard for PostgreSQL errors
+const isPostgresError = (error: any): error is { code: string; message: string; detail?: string } => {
+  return error && typeof error.code === 'string' && typeof error.message === 'string';
+};
+
+// Centralized PostgreSQL error handling
+const handlePostgresError = (error: any, query: string) => {
+  if (isPostgresError(error)) {
+    switch (error.code) {
+      case '42601': // Syntax error
+        debug("SQL Syntax Error:", {
+          query,
+          message: error.message,
+          detail: error.detail || 'No additional details'
+        });
+        throw new Error("Invalid SQL syntax. Please try rephrasing your request.");
+      
+      case '42703': // Undefined column
+        debug("Column Error:", {
+          query,
+          message: error.message,
+          detail: error.detail || 'No additional details'
+        });
+        throw new Error("Invalid column reference. Please check column names.");
+      
+      case '42P01': // Undefined table
+        return null; // Let the table creation logic handle this
+      
+      default:
+        debug("Unexpected Postgres Error:", {
+          code: error.code,
+          query,
+          message: error.message,
+          detail: error.detail || 'No additional details'
+        });
+        throw error;
+    }
+  }
+  throw error;
+};
+
+// Helper function to properly quote column identifiers
+const fixColumnQuoting = (query: string): string => {
+  // First fix any double-quoted identifiers
+  let fixedQuery = query.replace(/""+([^"]+)""+/g, '"$1"');
+  
+  // Then ensure case-sensitive columns are properly quoted
+  const sensitiveColumns = ['createdAt', 'systemMessage'];
+  sensitiveColumns.forEach(column => {
+    // Don't replace if it's already properly quoted
+    const regex = new RegExp(`(?<!["'])\\b${column}\\b(?!["'])`, 'g');
+    fixedQuery = fixedQuery.replace(regex, `"${column}"`);
+  });
+  
+  return fixedQuery;
+};
+
 export const generateQuery = async (input: string) => {
   "use server";
   debug("Generating query for input:", input);
@@ -21,9 +78,9 @@ export const generateQuery = async (input: string) => {
       model: openai("gpt-4o"),
       system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need.
 
-      IMPORTANT: Column names are case-sensitive and must be quoted:
-      - Use "createdAt" (not createdat or created_at)
-      - Use "systemMessage" (not systemmessage)
+      IMPORTANT: Case-sensitive column names must be properly quoted:
+      - Use "createdAt" (with double quotes, not createdat or created_at)
+      - Use "systemMessage" (with double quotes, not systemmessage)
       
       Table schema:
       legalprompt (
@@ -33,7 +90,9 @@ export const generateQuery = async (input: string) => {
         category VARCHAR(255) NOT NULL,
         "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
         "systemMessage" TEXT
-      );`,
+      );
+
+      Important: Always use proper double quotes (") for case-sensitive column names, never use multiple quotes ("").`,
       prompt: input,
       schema: z.object({
         query: z.string(),
@@ -42,12 +101,16 @@ export const generateQuery = async (input: string) => {
 
     let generatedQuery = result.object.query;
     
-    // Updated column mappings with quotes
+    // Updated column mappings with proper quotes
     const columnMappings = {
       'createdat': '"createdAt"',
       'created_at': '"createdAt"', 
       'systemmessage': '"systemMessage"',
-      'system_message': '"systemMessage"'
+      'system_message': '"systemMessage"',
+      '""createdAt""': '"createdAt"',
+      '""systemMessage""': '"systemMessage"',
+      '"\'createdAt\'"': '"createdAt"',
+      '"\'systemMessage\'"': '"systemMessage"'
     };
 
     // Fix case and add quotes
@@ -56,19 +119,15 @@ export const generateQuery = async (input: string) => {
       generatedQuery = generatedQuery.replace(regex, correct);
     });
 
-    // Additional validation for quoted columns
-    const sensitiveColumns = ['createdAt', 'systemMessage'];
-    sensitiveColumns.forEach(column => {
-      if (generatedQuery.includes(column) && !generatedQuery.includes(`"${column}"`)) {
-        generatedQuery = generatedQuery.replace(new RegExp(column, 'g'), `"${column}"`);
-      }
-    });
+    // Apply final fixes to ensure proper quoting
+    generatedQuery = fixColumnQuoting(generatedQuery);
 
+    debug("Raw query from AI:", result.object.query);
     debug("Final processed query:", generatedQuery);
     return generatedQuery;
   } catch (e) {
-    console.error("Error generating query:", e);
-    throw new Error("Failed to generate query");
+    debug("Error generating query:", { error: e });
+    throw new Error("Failed to generate query. Please try rephrasing your request.");
   }
 };
 
@@ -91,21 +150,26 @@ export const getLegalPrompts = async (query: string) => {
     throw new Error("Only SELECT queries are allowed");
   }
 
+  // Ensure proper quoting before execution
+  const sanitizedQuery = fixColumnQuoting(query);
+  debug("Sanitized query:", sanitizedQuery);
+
   let data: any;
   try {
     // Log exact query being sent to database
     debug("Executing SQL query:", { 
-      query,
+      query: sanitizedQuery,
       timestamp: new Date().toISOString()
     });
 
-    data = await sql.query(query);
+    data = await sql.query(sanitizedQuery);
     debug("Query executed successfully", {
       rowCount: data.rowCount,
       fields: data.fields?.map((f: { name: string }) => f.name)
     });
   } catch (e: any) {
-    if (e.message.includes('relation "legalprompt" does not exist')) {
+    const result = handlePostgresError(e, query);
+    if (result === null) {
       debug("Table does not exist, creating and seeding");
       
       const createTableQuery = `
@@ -132,31 +196,27 @@ export const getLegalPrompts = async (query: string) => {
       debug("Seeding table with query:", seedQuery);
       await sql.query(seedQuery);
       
-      // Retry original query
-      debug("Retrying original query after table creation");
-      data = await sql.query(query);
-      debug("Query executed successfully after table creation");
-    } else {
-      console.error("Error executing query:", {
-        error: e,
-        query,
-        message: e.message,
-        code: e.code,
-        detail: e.detail,
-        hint: e.hint
-      });
-      throw e;
+      try {
+        // Retry original query
+        debug("Retrying original query after table creation");
+        data = await sql.query(sanitizedQuery);
+        debug("Query executed successfully after table creation");
+      } catch (retryError) {
+        debug("Error executing query after table creation:", {
+          error: retryError,
+          query: sanitizedQuery
+        });
+        throw handlePostgresError(retryError, sanitizedQuery);
+      }
     }
   }
 
   return data.rows as Result[];
 };
 
-
-
 export const explainQuery = async (input: string, sqlQuery: string) => {
   "use server";
-  console.log("Explaining query for input:", input);
+  debug("Explaining query for input:", input);
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
@@ -169,13 +229,12 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
       name VARCHAR(255) NOT NULL,
       prompt TEXT NOT NULL,
       category VARCHAR(255) NOT NULL,
-      createdAt TIMESTAMP NOT NULL DEFAULT NOW(),
-      systemMessage TEXT
+      "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+      "systemMessage" TEXT
     );
 
     When you explain you must take a section of the query, and then explain it. Each "section" should be unique. So in a query like: "SELECT * FROM legalprompt limit 20", the sections could be "SELECT *", "FROM legalprompt", "LIMIT 20".
     If a section doesn't have any explanation, include it, but leave the explanation empty.
-
     `,
       prompt: `Explain the SQL query you generated to retrieve the data the user wanted. Assume the user is not an expert in SQL. Break down the query into steps. Be concise.
 
@@ -185,10 +244,10 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
       Generated SQL Query:
       ${sqlQuery}`,
     });
-    console.log("Generated explanation:", result.object);
+    debug("Generated explanation:", result.object);
     return result.object;
   } catch (e) {
-    console.error("Error generating query explanation:", e);
+    debug("Error generating query explanation:", { error: e });
     throw new Error("Failed to generate query explanation");
   }
 };
@@ -198,7 +257,7 @@ export const generateChartConfig = async (
   userQuery: string,
 ) => {
   "use server";
-  console.log("Generating chart config for user query:", userQuery);
+  debug("Generating chart config for user query:", userQuery);
   const system = `You are a data visualization expert. `;
 
   try {
@@ -235,14 +294,12 @@ export const generateChartConfig = async (
     });
 
     const updatedConfig: Config = { ...config, colors };
-    console.log("Generated chart config:", updatedConfig);
+    debug("Generated chart config:", updatedConfig);
     return { config: updatedConfig };
   } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error generating chart config:", e.message);
-    } else {
-      console.error("Error generating chart config:", e);
-    }
+    debug("Error generating chart config:", { 
+      error: e instanceof Error ? e.message : e 
+    });
     throw new Error("Failed to generate chart suggestion");
   }
 };
