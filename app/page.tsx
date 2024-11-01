@@ -1,7 +1,7 @@
-// app/page.tsx:
+// app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateChartConfig, generateQuery, getLegalPrompts } from "./actions";
 import { Config, Result } from "@/lib/types";
@@ -14,73 +14,109 @@ import { SuggestedQueries } from "@/components/suggested-queries";
 import { QueryViewer } from "@/components/query-viewer";
 import { Header } from "@/components/header";
 
-export default function Page() {
-  const [inputValue, setInputValue] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [results, setResults] = useState<Result[]>([]);
-  const [columns, setColumns] = useState<string[]>([]);
-  const [activeQuery, setActiveQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(1);
-  const [chartConfig, setChartConfig] = useState<Config | null>(null);
+// Add loading state type for better type safety
+type LoadingStep = 1 | 2;
 
-  const handleSubmit = async (suggestion?: string) => {
-    const question = suggestion ?? inputValue;
-    if (inputValue.length === 0 && !suggestion) return;
-    clearExistingData();
-    if (question.trim()) {
-      setSubmitted(true);
-    }
-    setLoading(true);
-    setLoadingStep(1);
-    setActiveQuery("");
+export default function Page() {
+  // Group related state
+  const [input, setInput] = useState({
+    value: "",
+    submitted: false
+  });
+  
+  const [queryState, setQueryState] = useState({
+    active: "",
+    results: [] as Result[],
+    columns: [] as string[],
+    chartConfig: null as Config | null
+  });
+  
+  const [loading, setLoading] = useState<{
+    status: boolean;
+    step: LoadingStep;
+  }>({
+    status: false,
+    step: 1
+  });
+
+  // Enhanced error handling with retry capability
+  const executeQuery = useCallback(async (question: string) => {
     try {
       const query = await generateQuery(question);
-      if (query === undefined) {
-        toast.error("An error occurred. Please try again.");
-        setLoading(false);
-        return;
-      }
-      setActiveQuery(query);
-      setLoadingStep(2);
+      if (!query) throw new Error("Failed to generate query");
+      
+      setQueryState(prev => ({ ...prev, active: query }));
+      setLoading(prev => ({ ...prev, step: 2 }));
+      
       const legalPrompts = await getLegalPrompts(query);
       const columns = legalPrompts.length > 0 ? Object.keys(legalPrompts[0]) : [];
-      setResults(legalPrompts);
-      setColumns(columns);
-      setLoading(false);
+      
+      setQueryState(prev => ({
+        ...prev,
+        results: legalPrompts,
+        columns
+      }));
+      
+      // Generate chart config in parallel
       const generation = await generateChartConfig(legalPrompts, question);
-      setChartConfig(generation.config);
-    } catch (e) {
-      toast.error("An error occurred. Please try again.");
-      setLoading(false);
+      setQueryState(prev => ({
+        ...prev,
+        chartConfig: generation.config
+      }));
+      
+      return true;
+    } catch (error) {
+      console.error("Query execution error:", error);
+      return false;
     }
-  };
+  }, []);
 
-  const handleSuggestionClick = async (suggestion: string) => {
-    setInputValue(suggestion);
+  const handleSubmit = useCallback(async (suggestion?: string) => {
+    const question = suggestion ?? input.value;
+    if (!suggestion && !input.value.trim()) return;
+
+    // Clear existing data and set loading state
+    setQueryState({
+      active: "",
+      results: [],
+      columns: [],
+      chartConfig: null
+    });
+    
+    setLoading({ status: true, step: 1 });
+    setInput(prev => ({ ...prev, submitted: true }));
+
     try {
-      await handleSubmit(suggestion);
-    } catch (e) {
-      toast.error("An error occurred. Please try again.");
+      const success = await executeQuery(question);
+      if (!success) {
+        toast.error("Failed to process query. Please try again.");
+      }
+    } catch (error) {
+      toast.error("An unexpected error occurred. Please try again.");
+      console.error("Submit error:", error);
+    } finally {
+      setLoading(prev => ({ ...prev, status: false }));
     }
-  };
+  }, [input.value, executeQuery]);
 
-  const clearExistingData = () => {
-    setActiveQuery("");
-    setResults([]);
-    setColumns([]);
-    setChartConfig(null);
-  };
+  const handleSuggestionClick = useCallback(async (suggestion: string) => {
+    setInput(prev => ({ ...prev, value: suggestion }));
+    await handleSubmit(suggestion);
+  }, [handleSubmit]);
 
-  const handleClear = () => {
-    setSubmitted(false);
-    setInputValue("");
-    clearExistingData();
-  };
+  const handleClear = useCallback(() => {
+    setInput({ value: "", submitted: false });
+    setQueryState({
+      active: "",
+      results: [],
+      columns: [],
+      chartConfig: null
+    });
+  }, []);
 
   return (
     <div className="bg-neutral-50 dark:bg-neutral-900 flex items-start justify-center p-0 sm:p-8">
-      <div className="w-full max-w-4xl min-h-dvh sm:min-h-0 flex flex-col ">
+      <div className="w-full max-w-4xl min-h-dvh sm:min-h-0 flex flex-col">
         <motion.div
           className="bg-card rounded-xl sm:border sm:border-border flex-grow flex flex-col"
           initial={{ opacity: 0 }}
@@ -95,9 +131,9 @@ export default function Page() {
                 e.preventDefault();
                 handleSubmit();
               }}
-              inputValue={inputValue}
-              setInputValue={setInputValue}
-              submitted={submitted}
+              inputValue={input.value}
+              setInputValue={(value) => setInput(prev => ({ ...prev, value }))}
+              submitted={input.submitted}
             />
             <div
               id="main-container"
@@ -105,7 +141,7 @@ export default function Page() {
             >
               <div className="flex-grow h-full">
                 <AnimatePresence mode="wait">
-                  {!submitted ? (
+                  {!input.submitted ? (
                     <SuggestedQueries
                       handleSuggestionClick={handleSuggestionClick}
                     />
@@ -119,19 +155,19 @@ export default function Page() {
                       className="sm:h-full min-h-[400px] flex flex-col"
                     >
                       <QueryViewer
-                        activeQuery={activeQuery}
-                        inputValue={inputValue}
+                        activeQuery={queryState.active}
+                        inputValue={input.value}
                       />
-                      {loading ? (
+                      {loading.status ? (
                         <div className="h-full absolute bg-background/50 w-full flex flex-col items-center justify-center space-y-4">
                           <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" />
                           <p className="text-foreground">
-                            {loadingStep === 1
+                            {loading.step === 1
                               ? "Generating SQL query..."
                               : "Running SQL query..."}
                           </p>
                         </div>
-                      ) : results.length === 0 ? (
+                      ) : queryState.results.length === 0 ? (
                         <div className="flex-grow flex items-center justify-center">
                           <p className="text-center text-muted-foreground">
                             No results found.
@@ -139,9 +175,9 @@ export default function Page() {
                         </div>
                       ) : (
                         <LegalPromptTable
-                          results={results}
-                          chartConfig={chartConfig}
-                          columns={columns}
+                          results={queryState.results}
+                          chartConfig={queryState.chartConfig}
+                          columns={queryState.columns}
                         />
                       )}
                     </motion.div>
