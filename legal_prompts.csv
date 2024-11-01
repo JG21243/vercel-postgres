@@ -1,4 +1,4 @@
-Name,Prompt,Category,Created At,System Message
+Name,Prompt,Category,CreatedAt,System Message
 "Contract Review Assistant","Please analyze this contract for potential risks and legal issues. Focus on liability clauses, termination conditions, and payment terms.","Contract Analysis","15/03/2024","You are a legal assistant specialized in contract review. Maintain attorney-client privilege and focus on identifying key legal risks."
 "Legal Research Helper","Find relevant case law and statutes related to the following legal issue. Summarize key findings and precedents.","Legal Research","20/03/2024","You are a legal research assistant. Provide accurate citations and focus on jurisdiction-specific precedents."
 "Compliance Checker","Review these business practices for compliance with current regulations. Identify any potential violations and suggest remediation steps.","Compliance","25/03/2024","You are a compliance specialist. Focus on regulatory requirements and best practices for ensuring compliance."

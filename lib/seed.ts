@@ -15,7 +15,7 @@ function parseDate(dateString: string): Date {
     return new Date(`${year}-${month}-${day}`);
   }
   console.warn(`Could not parse date: ${dateString}`);
-  throw Error();
+  throw new Error(`Invalid date format: ${dateString}`);
 }
 
 async function seed() {
@@ -36,7 +36,15 @@ async function seed() {
 
   for (const row of results) {
     try {
-      const formattedDate = parseDate(row['Created At']);
+      // Defensive column name handling
+      const createdAtValue = row['createdAt'] || row['Created At'];
+      const systemMessage = row['systemMessage'] || row['System Message'];
+      
+      if (!createdAtValue) {
+        throw new Error('Missing createdAt value');
+      }
+
+      const formattedDate = parseDate(createdAtValue);
       console.log(`Seeding row: ${JSON.stringify(row)}`);
 
       await prisma.legalprompt.create({
@@ -45,13 +53,14 @@ async function seed() {
           prompt: row.Prompt,
           category: row.Category,
           createdAt: formattedDate,
-          systemMessage: row['System Message'],
+          systemMessage: systemMessage,
         },
       });
 
       console.log(`Successfully seeded row: ${row.Name}`);
     } catch (error) {
       console.error(`Error seeding row: ${JSON.stringify(row)}`, error);
+      // Continue with next row instead of failing entire process
     }
   }
 
