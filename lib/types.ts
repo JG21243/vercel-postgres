@@ -1,3 +1,4 @@
+// lib/types.ts
 import { z } from "zod";
 
 // Represents a legal prompt with various attributes

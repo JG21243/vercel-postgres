@@ -1,10 +1,9 @@
-// app/page.tsx
 "use client";
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateChartConfig, generateQuery, getLegalPrompts } from "./actions";
-import { Config, Result } from "@/lib/types";
+import { Config, Result, LegalPrompt, QueryExplanation } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ProjectInfo } from "@/components/project-info";
@@ -14,41 +13,67 @@ import { SuggestedQueries } from "@/components/suggested-queries";
 import { QueryViewer } from "@/components/query-viewer";
 import { Header } from "@/components/header";
 
-// Add loading state type for better type safety
+// Enhanced types using your type definitions
 type LoadingStep = 1 | 2;
 
+interface InputState {
+  value: string;
+  submitted: boolean;
+}
+
+interface QueryState {
+  active: string;
+  results: Result[];
+  columns: string[];
+  chartConfig: Config | null;
+  explanations?: QueryExplanation[];
+}
+
+interface LoadingState {
+  status: boolean;
+  step: LoadingStep;
+  error?: string;
+}
+
 export default function Page() {
-  // Group related state
-  const [input, setInput] = useState({
+  // State with your type definitions
+  const [input, setInput] = useState<InputState>({
     value: "",
     submitted: false
   });
   
-  const [queryState, setQueryState] = useState({
+  const [queryState, setQueryState] = useState<QueryState>({
     active: "",
-    results: [] as Result[],
-    columns: [] as string[],
-    chartConfig: null as Config | null
+    results: [],
+    columns: [],
+    chartConfig: null,
+    explanations: []
   });
   
-  const [loading, setLoading] = useState<{
-    status: boolean;
-    step: LoadingStep;
-  }>({
+  const [loading, setLoading] = useState<LoadingState>({
     status: false,
-    step: 1
+    step: 1,
+    error: undefined
   });
 
-  // Enhanced error handling with retry capability
   const executeQuery = useCallback(async (question: string) => {
     try {
       const query = await generateQuery(question);
-      if (!query) throw new Error("Failed to generate query");
+      if (!query) {
+        toast.error("Could not generate a valid SQL query. Please try rephrasing your question.");
+        return false;
+      }
       
       setQueryState(prev => ({ ...prev, active: query }));
       setLoading(prev => ({ ...prev, step: 2 }));
       
       const legalPrompts = await getLegalPrompts(query);
+      
+      // Ensure we have valid results
+      if (!Array.isArray(legalPrompts)) {
+        throw new Error("Invalid response format from server");
+      }
+      
       const columns = legalPrompts.length > 0 ? Object.keys(legalPrompts[0]) : [];
       
       setQueryState(prev => ({
@@ -57,43 +82,78 @@ export default function Page() {
         columns
       }));
       
-      // Generate chart config in parallel
-      const generation = await generateChartConfig(legalPrompts, question);
-      setQueryState(prev => ({
-        ...prev,
-        chartConfig: generation.config
-      }));
+      // Generate chart config with proper typing
+      try {
+        const generation = await generateChartConfig(legalPrompts, question);
+        if (!generation?.config) {
+          throw new Error("Invalid chart configuration received");
+        }
+        
+        setQueryState(prev => ({
+          ...prev,
+          chartConfig: {
+            ...generation.config,
+            // Ensure required properties are present
+            type: generation.config.type,
+            xKey: generation.config.xKey,
+            yKeys: generation.config.yKeys,
+            // Optional properties with defaults
+            colors: generation.config.colors ?? {},
+            legend: generation.config.legend ?? false,
+            multipleLines: generation.config.multipleLines ?? false,
+            measurementColumn: generation.config.measurementColumn
+          }
+        }));
+      } catch (chartError) {
+        console.error("Chart generation error:", chartError);
+        toast.error("Could not generate visualization, but data is available in table form.");
+      }
       
       return true;
     } catch (error) {
       console.error("Query execution error:", error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("An unexpected error occurred while processing your query.");
+      }
       return false;
     }
   }, []);
 
   const handleSubmit = useCallback(async (suggestion?: string) => {
     const question = suggestion ?? input.value;
-    if (!suggestion && !input.value.trim()) return;
+    if (!suggestion && !input.value.trim()) {
+      toast.error("Please enter a query first");
+      return;
+    }
 
-    // Clear existing data and set loading state
+    // Reset state with proper typing
     setQueryState({
       active: "",
       results: [],
       columns: [],
-      chartConfig: null
+      chartConfig: null,
+      explanations: []
     });
     
-    setLoading({ status: true, step: 1 });
+    setLoading({ status: true, step: 1, error: undefined });
     setInput(prev => ({ ...prev, submitted: true }));
 
     try {
       const success = await executeQuery(question);
       if (!success) {
-        toast.error("Failed to process query. Please try again.");
+        setInput(prev => ({ ...prev, submitted: false }));
+        setLoading(prev => ({ ...prev, error: "Query execution failed" }));
       }
     } catch (error) {
-      toast.error("An unexpected error occurred. Please try again.");
       console.error("Submit error:", error);
+      toast.error("An unexpected error occurred. Please try again.");
+      setInput(prev => ({ ...prev, submitted: false }));
+      setLoading(prev => ({ 
+        ...prev, 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      }));
     } finally {
       setLoading(prev => ({ ...prev, status: false }));
     }
@@ -110,8 +170,11 @@ export default function Page() {
       active: "",
       results: [],
       columns: [],
-      chartConfig: null
+      chartConfig: null,
+      explanations: []
     });
+    setLoading({ status: false, step: 1, error: undefined });
+    toast.success("Cleared all results");
   }, []);
 
   return (
@@ -166,11 +229,16 @@ export default function Page() {
                               ? "Generating SQL query..."
                               : "Running SQL query..."}
                           </p>
+                          {loading.error && (
+                            <p className="text-destructive text-sm">
+                              Error: {loading.error}
+                            </p>
+                          )}
                         </div>
                       ) : queryState.results.length === 0 ? (
                         <div className="flex-grow flex items-center justify-center">
                           <p className="text-center text-muted-foreground">
-                            No results found.
+                            No results found. Try rephrasing your query.
                           </p>
                         </div>
                       ) : (

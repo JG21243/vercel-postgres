@@ -1,5 +1,6 @@
 // app/actions.ts
 "use server";
+
 import { Config } from '@/lib/types';
 import { configSchema, explanationsSchema, Result } from "@/lib/types";
 import { openai } from "@ai-sdk/openai";
@@ -7,80 +8,155 @@ import { sql } from "@vercel/postgres";
 import { generateObject } from "ai";
 import { z } from "zod";
 
-// Debug logging helper
-const debug = (message: string, data?: any) => {
-  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+// Types
+interface PostgresError extends Error {
+  code: string;
+  message: string;
+  detail?: string;
+}
+
+interface QueryValidationResult {
+  isValid: boolean;
+  error?: string;
+}
+
+// Constants
+const SENSITIVE_COLUMNS = ['createdAt', 'systemMessage'] as const;
+const FORBIDDEN_KEYWORDS = ['drop', 'delete', 'insert', 'update', 'truncate', 'alter'] as const;
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
+
+// Enhanced debug logging with trace ID and timing
+const debug = (message: string, data?: any, traceId?: string) => {
+  const timestamp = new Date().toISOString();
+  console.log(
+    `[DEBUG${traceId ? ` - ${traceId}` : ''}][${timestamp}] ${message}`,
+    data ? JSON.stringify(data, null, 2) : ''
+  );
 };
 
-// Type guard for PostgreSQL errors
-const isPostgresError = (error: any): error is { code: string; message: string; detail?: string } => {
-  return error && typeof error.code === 'string' && typeof error.message === 'string';
+// Type guards
+const isPostgresError = (error: unknown): error is PostgresError => {
+  return error instanceof Error && 
+         'code' in error && 
+         typeof (error as any).code === 'string';
 };
 
-// Centralized PostgreSQL error handling
-const handlePostgresError = (error: any, query: string) => {
-  if (isPostgresError(error)) {
-    switch (error.code) {
-      case '42601': // Syntax error
-        debug("SQL Syntax Error:", {
-          query,
-          message: error.message,
-          detail: error.detail || 'No additional details'
-        });
-        throw new Error("Invalid SQL syntax. Please try rephrasing your request.");
-      
-      case '42703': // Undefined column
-        debug("Column Error:", {
-          query,
-          message: error.message,
-          detail: error.detail || 'No additional details'
-        });
-        throw new Error("Invalid column reference. Please check column names.");
-      
-      case '42P01': // Undefined table
-        return null; // Let the table creation logic handle this
-      
-      default:
-        debug("Unexpected Postgres Error:", {
-          code: error.code,
-          query,
-          message: error.message,
-          detail: error.detail || 'No additional details'
-        });
-        throw error;
-    }
-  }
-  throw error;
+// SQL Sanitization and Validation
+const sanitizeSQL = (query: string): string => {
+  return query
+    .replace(/--/g, '') // Remove SQL comments
+    .replace(/;/g, '') // Remove semicolons
+    .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+    .trim();
 };
 
-// Helper function to properly quote column identifiers
 const fixColumnQuoting = (query: string): string => {
-  // First fix any double-quoted identifiers
-  let fixedQuery = query.replace(/""+([^"]+)""+/g, '"$1"');
+  let fixedQuery = query;
   
-  // Then ensure case-sensitive columns are properly quoted
-  const sensitiveColumns = ['createdAt', 'systemMessage'];
-  sensitiveColumns.forEach(column => {
-    // Don't replace if it's already properly quoted
-    const regex = new RegExp(`(?<!["'])\\b${column}\\b(?!["'])`, 'g');
+  // Remove malformed quotes
+  fixedQuery = fixedQuery.replace(/"{2,}/g, '"');
+  
+  // Ensure case-sensitive columns are properly quoted
+  SENSITIVE_COLUMNS.forEach(column => {
+    const regex = new RegExp(`(?<!["'])\\b${column}\\b(?!["'])`, 'gi');
     fixedQuery = fixedQuery.replace(regex, `"${column}"`);
   });
   
   return fixedQuery;
 };
 
+const validateQuery = (query: string): QueryValidationResult => {
+  const sanitized = query.toLowerCase().trim();
+  
+  if (!sanitized.startsWith('select')) {
+    return { 
+      isValid: false, 
+      error: 'Only SELECT queries are allowed' 
+    };
+  }
+  
+  for (const keyword of FORBIDDEN_KEYWORDS) {
+    if (sanitized.includes(keyword)) {
+      return { 
+        isValid: false, 
+        error: `Query contains forbidden keyword: ${keyword}` 
+      };
+    }
+  }
+  
+  // Check for basic SQL injection patterns
+  const suspicious = [
+    '--',
+    '/*',
+    'union',
+    'exec',
+    'xp_',
+    'waitfor'
+  ];
+  
+  for (const pattern of suspicious) {
+    if (sanitized.includes(pattern)) {
+      return {
+        isValid: false,
+        error: 'Query contains suspicious patterns'
+      };
+    }
+  }
+  
+  return { isValid: true };
+};
+
+// Error Handling
+const handlePostgresError = (error: unknown, query: string): never => {
+  if (!isPostgresError(error)) {
+    throw new Error('Unknown database error occurred');
+  }
+
+  const errorMap: Record<string, string> = {
+    '42601': 'Invalid SQL syntax. Please check your query.',
+    '42703': 'Invalid column reference. Please verify column names.',
+    '42P01': 'Table does not exist.',
+    '23505': 'Duplicate key violation.',
+    '23503': 'Foreign key violation.',
+    '57014': 'Query cancelled due to timeout.',
+    '53400': 'Out of memory.',
+    '42883': 'Undefined function.',
+    '42P02': 'Undefined parameter.',
+    '23502': 'Not null violation.',
+    '22001': 'String data right truncation.',
+    '22003': 'Numeric value out of range.',
+    '22007': 'Invalid datetime format.',
+    '22P02': 'Invalid text representation.'
+  };
+
+  const errorMessage = errorMap[error.code] || 'An unexpected database error occurred';
+  
+  debug('Database Error:', {
+    code: error.code,
+    message: error.message,
+    detail: error.detail,
+    query
+  });
+
+  throw new Error(`${errorMessage}${error.detail ? `: ${error.detail}` : ''}`);
+};
+
+// Main Functions
 export const generateQuery = async (input: string) => {
-  "use server";
-  debug("Generating query for input:", input);
+  const traceId = Math.random().toString(36).substring(7);
+  debug("Generating query for input", { input }, traceId);
   
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
-      system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need.
-
-      IMPORTANT: Case-sensitive column names must be properly quoted:
-      - Use "createdAt" (with double quotes, not createdat or created_at)
-      - Use "systemMessage" (with double quotes, not systemmessage)
+      system: `You are a SQL (postgres) and data visualization expert. Generate safe, 
+      efficient SQL queries following these rules:
+      1. Always use proper double quotes (") for case-sensitive columns
+      2. Never use multiple quotes ("")
+      3. Only generate SELECT queries
+      4. Properly handle NULL values
+      5. Use appropriate date/time functions
+      6. Include appropriate WHERE clauses for filtering
       
       Table schema:
       legalprompt (
@@ -90,164 +166,114 @@ export const generateQuery = async (input: string) => {
         category VARCHAR(255) NOT NULL,
         "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
         "systemMessage" TEXT
-      );
-
-      Important: Always use proper double quotes (") for case-sensitive column names, never use multiple quotes ("").`,
+      );`,
       prompt: input,
       schema: z.object({
         query: z.string(),
       }),
+      temperature: 0.0, // Lower temperature for more consistent queries
     });
 
     let generatedQuery = result.object.query;
+    debug("Raw query from AI", { query: generatedQuery }, traceId);
     
-    // Updated column mappings with proper quotes
-    const columnMappings = {
-      'createdat': '"createdAt"',
-      'created_at': '"createdAt"', 
-      'systemmessage': '"systemMessage"',
-      'system_message': '"systemMessage"',
-      '""createdAt""': '"createdAt"',
-      '""systemMessage""': '"systemMessage"',
-      '"\'createdAt\'"': '"createdAt"',
-      '"\'systemMessage\'"': '"systemMessage"'
-    };
-
-    // Fix case and add quotes
-    Object.entries(columnMappings).forEach(([incorrect, correct]) => {
-      const regex = new RegExp(incorrect, 'gi');
-      generatedQuery = generatedQuery.replace(regex, correct);
-    });
-
-    // Apply final fixes to ensure proper quoting
+    // Sanitize and validate
+    generatedQuery = sanitizeSQL(generatedQuery);
+    const validation = validateQuery(generatedQuery);
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Invalid query generated');
+    }
+    
+    // Fix column quoting
     generatedQuery = fixColumnQuoting(generatedQuery);
-
-    debug("Raw query from AI:", result.object.query);
-    debug("Final processed query:", generatedQuery);
+    debug("Final processed query", { query: generatedQuery }, traceId);
+    
     return generatedQuery;
   } catch (e) {
-    debug("Error generating query:", { error: e });
-    throw new Error("Failed to generate query. Please try rephrasing your request.");
+    debug("Error generating query", { error: e }, traceId);
+    throw new Error(
+      e instanceof Error 
+        ? `Failed to generate query: ${e.message}` 
+        : "Failed to generate query"
+    );
   }
 };
 
 export const getLegalPrompts = async (query: string) => {
-  "use server";
-  debug("Executing query:", query);
+  const traceId = Math.random().toString(36).substring(7);
+  debug("Executing query", { query }, traceId);
 
-  // Enhanced query validation
-  const queryValidation = {
-    isSelect: query.trim().toLowerCase().startsWith("select"),
-    hasDrop: query.trim().toLowerCase().includes("drop"),
-    hasDelete: query.trim().toLowerCase().includes("delete"),
-    hasInsert: query.trim().toLowerCase().includes("insert")
-  };
-
-  debug("Query validation results:", queryValidation);
-
-  if (!queryValidation.isSelect || queryValidation.hasDrop || 
-      queryValidation.hasDelete || queryValidation.hasInsert) {
-    throw new Error("Only SELECT queries are allowed");
+  // Validate query
+  const validation = validateQuery(query);
+  if (!validation.isValid) {
+    throw new Error(validation.error || 'Invalid query');
   }
 
-  // Ensure proper quoting before execution
-  const sanitizedQuery = fixColumnQuoting(query);
-  debug("Sanitized query:", sanitizedQuery);
+  // Sanitize query
+  const sanitizedQuery = fixColumnQuoting(sanitizeSQL(query));
+  debug("Sanitized query", { query: sanitizedQuery }, traceId);
 
-  let data: any;
   try {
-    // Log exact query being sent to database
-    debug("Executing SQL query:", { 
-      query: sanitizedQuery,
-      timestamp: new Date().toISOString()
-    });
+    const queryResult = await Promise.race([
+      sql.query(sanitizedQuery),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), DEFAULT_TIMEOUT)
+      )
+    ]) as { rowCount: number; fields: { name: string }[]; rows: Result[] };
 
-    data = await sql.query(sanitizedQuery);
     debug("Query executed successfully", {
-      rowCount: data.rowCount,
-      fields: data.fields?.map((f: { name: string }) => f.name)
-    });
-  } catch (e: any) {
-    const result = handlePostgresError(e, query);
-    if (result === null) {
-      debug("Table does not exist, creating and seeding");
-      
-      const createTableQuery = `
-        CREATE TABLE legalprompt (
-          id SERIAL PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          prompt TEXT NOT NULL,
-          category VARCHAR(255) NOT NULL,
-          "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-          "systemMessage" TEXT
-        );
-      `;
-      
-      debug("Creating table with query:", createTableQuery);
-      await sql.query(createTableQuery);
+      rowCount: queryResult.rowCount,
+      fields: queryResult.fields?.map(f => f.name)
+    }, traceId);
 
-      const seedQuery = `
-        INSERT INTO legalprompt (name, prompt, category, "systemMessage") VALUES
-        ('Prompt 1', 'This is the first prompt', 'Category 1', 'System message 1'),
-        ('Prompt 2', 'This is the second prompt', 'Category 2', 'System message 2'),
-        ('Prompt 3', 'This is the third prompt', 'Category 3', NULL);
-      `;
-      
-      debug("Seeding table with query:", seedQuery);
-      await sql.query(seedQuery);
+    return queryResult.rows as Result[];
+  } catch (error) {
+    if ((error as Error).message === 'Query timeout') {
+      throw new Error('Query timed out. Please simplify your query.');
+    }
+
+    if (isPostgresError(error) && error.code === '42P01') {
+      debug("Table does not exist, creating and seeding", {}, traceId);
       
       try {
-        // Retry original query
-        debug("Retrying original query after table creation");
-        data = await sql.query(sanitizedQuery);
-        debug("Query executed successfully after table creation");
+        await createAndSeedTable();
+        const retryResult = await sql.query(sanitizedQuery);
+        return retryResult.rows as Result[];
       } catch (retryError) {
-        debug("Error executing query after table creation:", {
-          error: retryError,
-          query: sanitizedQuery
-        });
-        throw handlePostgresError(retryError, sanitizedQuery);
+        handlePostgresError(retryError, sanitizedQuery);
       }
     }
-  }
 
-  return data.rows as Result[];
+    handlePostgresError(error, sanitizedQuery);
+  }
 };
 
 export const explainQuery = async (input: string, sqlQuery: string) => {
-  "use server";
-  debug("Explaining query for input:", input);
+  const traceId = Math.random().toString(36).substring(7);
+  debug("Explaining query", { input, sqlQuery }, traceId);
+
   try {
     const result = await generateObject({
       model: openai("gpt-4o"),
       schema: z.object({
         explanations: explanationsSchema,
       }),
-      system: `You are a SQL (postgres) expert. Your job is to explain to the user the SQL query you wrote to retrieve the data they asked for. The table schema is as follows:
-    legalprompt (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      prompt TEXT NOT NULL,
-      category VARCHAR(255) NOT NULL,
-      "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-      "systemMessage" TEXT
-    );
-
-    When you explain you must take a section of the query, and then explain it. Each "section" should be unique. So in a query like: "SELECT * FROM legalprompt limit 20", the sections could be "SELECT *", "FROM legalprompt", "LIMIT 20".
-    If a section doesn't have any explanation, include it, but leave the explanation empty.
-    `,
-      prompt: `Explain the SQL query you generated to retrieve the data the user wanted. Assume the user is not an expert in SQL. Break down the query into steps. Be concise.
-
-      User Query:
-      ${input}
-
-      Generated SQL Query:
-      ${sqlQuery}`,
+      system: `You are a SQL expert explaining queries to users. Break down complex
+      SQL concepts into simple terms. Focus on:
+      1. What data is being retrieved
+      2. How the data is being filtered/sorted
+      3. Any calculations or transformations
+      4. The expected results`,
+      prompt: `Explain this SQL query in simple terms:
+      User Query: ${input}
+      SQL Query: ${sqlQuery}`,
+      temperature: 0.3,
     });
-    debug("Generated explanation:", result.object);
+
+    debug("Generated explanation", result.object, traceId);
     return result.object;
   } catch (e) {
-    debug("Error generating query explanation:", { error: e });
+    debug("Error generating explanation", { error: e }, traceId);
     throw new Error("Failed to generate query explanation");
   }
 };
@@ -255,51 +281,94 @@ export const explainQuery = async (input: string, sqlQuery: string) => {
 export const generateChartConfig = async (
   results: Result[],
   userQuery: string,
-) => {
-  "use server";
-  debug("Generating chart config for user query:", userQuery);
-  const system = `You are a data visualization expert. `;
+): Promise<{ config: Config }> => {
+  const traceId = Math.random().toString(36).substring(7);
+  
+  if (!results?.length) {
+    throw new Error('No data available for visualization');
+  }
+
+  debug("Generating chart config", { 
+    userQuery, 
+    resultCount: results.length,
+    sampleData: results.slice(0, 2)
+  }, traceId);
 
   try {
     const { object: config } = await generateObject({
       model: openai("gpt-4o"),
-      system,
-      prompt: `Given the following data from a SQL query result, generate the chart config that best visualizes the data and answers the user's query.
-      For multiple groups use multi-lines.
-
-      Here is an example complete config:
-      export const chartConfig = {
-        type: "pie",
-        xKey: "month",
-        yKeys: ["sales", "profit", "expenses"],
-        colors: {
-          sales: "#4CAF50",    // Green for sales
-          profit: "#2196F3",   // Blue for profit
-          expenses: "#F44336"  // Red for expenses
-        },
-        legend: true
-      }
-
-      User Query:
-      ${userQuery}
-
-      Data:
-      ${JSON.stringify(results, null, 2)}`,
+      system: `You are a data visualization expert. Generate appropriate chart 
+      configurations based on data structure and query intent. Consider:
+      1. Data type of each column
+      2. Number of data points
+      3. Relationships between variables
+      4. User's analytical goals`,
+      prompt: `Create a chart configuration for:
+      Sample Data: ${JSON.stringify(results.slice(0, 5))}
+      User Query: ${userQuery}
+      Total Rows: ${results.length}`,
       schema: configSchema,
+      temperature: 0.2,
     });
 
+    if (!config.yKeys?.length) {
+      throw new Error('Invalid chart configuration: missing yKeys');
+    }
+
+    // Generate color scheme
     const colors: Record<string, string> = {};
     config.yKeys.forEach((key, index) => {
-      colors[key] = `hsl(var(--chart-${index + 1}))`;
+      colors[key] = `hsl(var(--chart-${(index % 12) + 1}))`;
     });
 
-    const updatedConfig: Config = { ...config, colors };
-    debug("Generated chart config:", updatedConfig);
-    return { config: updatedConfig };
-  } catch (e) {
-    debug("Error generating chart config:", { 
-      error: e instanceof Error ? e.message : e 
-    });
-    throw new Error("Failed to generate chart suggestion");
+    const finalConfig: Config = { 
+      ...config, 
+      colors,
+      legend: config.yKeys.length > 1 // Show legend for multiple series
+    };
+
+    debug("Generated chart config", finalConfig, traceId);
+    return { config: finalConfig };
+  } catch (error) {
+    debug("Chart generation error", { error }, traceId);
+    throw new Error(
+      error instanceof Error 
+        ? `Failed to generate chart: ${error.message}`
+        : 'Failed to generate chart configuration'
+    );
   }
 };
+
+// Helper function for table creation and seeding
+async function createAndSeedTable() {
+  const createTableQuery = `
+    CREATE TABLE legalprompt (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      prompt TEXT NOT NULL,
+      category VARCHAR(255) NOT NULL,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+      "systemMessage" TEXT
+    );
+  `;
+  
+  const seedQuery = `
+    INSERT INTO legalprompt (name, prompt, category, "systemMessage")
+    VALUES 
+      ('Prompt 1', 'This is the first prompt', 'Category 1', 'System message 1'),
+      ('Prompt 2', 'This is the second prompt', 'Category 2', 'System message 2'),
+      ('Prompt 3', 'This is the third prompt', 'Category 3', NULL);
+  `;
+  
+  await sql.query(createTableQuery);
+  await sql.query(seedQuery);
+}
+
+const actions = {
+  generateQuery,
+  getLegalPrompts,
+  explainQuery,
+  generateChartConfig
+};
+
+export default actions;
