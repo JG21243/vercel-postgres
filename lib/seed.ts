@@ -36,16 +36,17 @@ async function seed() {
 
   for (const row of results) {
     try {
-      // Defensive column name handling
-      const createdAtValue = row['createdAt'] || row['Created At'];
-      const systemMessage = row['systemMessage'] || row['System Message'];
+      // Enhanced defensive column name handling
+      const createdAtValue = row['createdAt'] || row['CreatedAt'] || row['Created At'];
+      const systemMessage = row['systemMessage'] || row['SystemMessage'] || row['System Message'];
       
       if (!createdAtValue) {
+        console.warn('Row data:', row);
         throw new Error('Missing createdAt value');
       }
 
       const formattedDate = parseDate(createdAtValue);
-      console.log(`Seeding row: ${JSON.stringify(row)}`);
+      console.log(`Processing row: ${row.Name}`);
 
       await prisma.legalprompt.create({
         data: {
@@ -59,7 +60,10 @@ async function seed() {
 
       console.log(`Successfully seeded row: ${row.Name}`);
     } catch (error) {
-      console.error(`Error seeding row: ${JSON.stringify(row)}`, error);
+      console.error(`Error seeding row:`, {
+        row: JSON.stringify(row),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
       // Continue with next row instead of failing entire process
     }
   }
